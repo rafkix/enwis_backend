@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
-from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.routers import auth_router, course_category, courses_router, daily_vocab, lessons_router, users_router, words_router, telegram_webapp
 
@@ -17,13 +16,18 @@ app = FastAPI(
 )
 
 origins = [
+    # Local
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+
+    # Production frontend
     "https://enwis.uz",
     "https://app.enwis.uz",
-]
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+    # Vercel
+    "https://enwis-dashboard.vercel.app",
+    "https://enwis-dashboard-guvh2b9ag-rafkixs-projects.vercel.app",
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +36,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.add_middleware(
     SessionMiddleware,

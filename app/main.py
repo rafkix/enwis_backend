@@ -3,109 +3,164 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
+import os
+
 from app.database import init_db
-from app.routers import auth_router, course_category, courses_router, daily_vocab, lessons_router, users_router, words_router, telegram_webapp
+from app.routers import (
+    auth_router,
+    users_router,
+    lessons_router,
+    courses_router,
+    course_category,
+    words_router,
+    daily_vocab,
+    telegram_webapp,
+)
+
+# ------------------------------------------------------------------
+# App init
+# ------------------------------------------------------------------
 
 app = FastAPI(
     title="Enwis Backend API",
     version="1.0.0",
-    description=(
-        "Enwis is an educational platform created for learning foreign languages using AI. \n"
-        "This API manages users, courses, exercises, AI translation, and gamification systems."
-    ),
+    description="Enwis — AI-powered language learning platform",
 )
 
-origins = [
+# ------------------------------------------------------------------
+# CORS CONFIG (PRODUCTION SAFE)
+# ------------------------------------------------------------------
+
+ALLOWED_ORIGINS = [
     # Local
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 
-    # Production frontend
+    # Production
     "https://enwis.uz",
+    "https://www.enwis.uz",
+    "https://api.enwis.uz",
     "https://app.enwis.uz",
 
-    # Vercel
+    # Vercel previews
     "https://enwis-dashboard.vercel.app",
-    "https://enwis-dashboard-guvh2b9ag-rafkixs-projects.vercel.app",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
 )
 
+# ------------------------------------------------------------------
+# SESSION MIDDLEWARE (COOKIE AUTH)
+# ------------------------------------------------------------------
+
+SESSION_SECRET = os.getenv("SESSION_SECRET", "CHANGE_ME")
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key="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"  # o‘zgartir!
+    secret_key=SESSION_SECRET,
+    same_site="none",  # required for cross-domain cookies
+    https_only=True,   # production only
 )
 
+# ------------------------------------------------------------------
+# ROUTERS
+# ------------------------------------------------------------------
 
-app.include_router(auth_router.router, prefix="/v1/api")
-app.include_router(users_router.router, prefix="/v1/api")
-app.include_router(lessons_router.router, prefix="/v1/api")
-app.include_router(courses_router.router, prefix="/v1/api")
-app.include_router(course_category.router, prefix="/v1/api")
-app.include_router(words_router.router, prefix="/v1/api")
-app.include_router(telegram_webapp.router, prefix="/v1/api")
-app.include_router(daily_vocab.router, prefix="/v1/api")
-# app.include_router(courses_router.router)
-# app.include_router(payments_router.router)
-# app.include_router(ai_router.router)
+API_PREFIX = "/v1/api"
 
+app.include_router(auth_router.router, prefix=API_PREFIX, tags=["Auth"])
+app.include_router(users_router.router, prefix=API_PREFIX, tags=["Users"])
+app.include_router(lessons_router.router, prefix=API_PREFIX, tags=["Lessons"])
+app.include_router(courses_router.router, prefix=API_PREFIX, tags=["Courses"])
+app.include_router(course_category.router, prefix=API_PREFIX, tags=["Course Categories"])
+app.include_router(words_router.router, prefix=API_PREFIX, tags=["Words"])
+app.include_router(daily_vocab.router, prefix=API_PREFIX, tags=["Daily Vocabulary"])
+app.include_router(telegram_webapp.router, prefix=API_PREFIX, tags=["Telegram"])
+
+# ------------------------------------------------------------------
+# STARTUP
+# ------------------------------------------------------------------
 
 @app.on_event("startup")
-async def on_startup():
+async def startup_event():
     await init_db()
-    print("✅ Database initialized successfully.")
+    print("✅ Database initialized")
 
+# ------------------------------------------------------------------
+# ERROR HANDLERS
+# ------------------------------------------------------------------
 
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+):
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "error": {
-                "status_code": exc.status_code,
-                "detail": exc.detail,
+                "status": exc.status_code,
+                "message": exc.detail,
                 "path": str(request.url),
             }
         },
     )
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    print(f"❌ Unexpected error: {exc}")
+async def unhandled_exception_handler(
+    request: Request, exc: Exception
+):
+    print(f"❌ Unhandled error: {exc}")
     return JSONResponse(
         status_code=500,
         content={
             "error": {
-                "status_code": 500,
-                "detail": "Internal Server Error",
+                "status": 500,
+                "message": "Internal Server Error",
                 "path": str(request.url),
             }
         },
     )
 
-
+# ------------------------------------------------------------------
+# HEALTH & ROOT
+# ------------------------------------------------------------------
 
 @app.get("/", tags=["System"])
 async def root():
     return {
-        "message": "🚀 Enwis Backend API is running!",
-        "version": "1.0.0",
+        "status": "running",
+        "service": "Enwis Backend API",
         "docs": "/docs",
-        "redoc": "/redoc",
+        "health": "/health",
     }
 
-
 @app.get("/health", tags=["System"])
-async def health_check():
-    return {"status": "ok", "database": "connected"}
+async def health():
+    return {
+        "status": "ok",
+        "database": "connected",
+    }
+
+# ------------------------------------------------------------------
+# LOCAL DEV ONLY
+# ------------------------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+    )

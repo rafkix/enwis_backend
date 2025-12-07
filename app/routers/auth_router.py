@@ -1,3 +1,4 @@
+from sqlite3 import IntegrityError
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,13 +16,24 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 @router.post("/register", response_model=dict)
-async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    # username tekshirish
-    existing = await db.execute(select(User).where(User.username == user.username))
-    if existing.scalars().first():
-        raise HTTPException(400, "Username already exists")
+async def register_user(
+    user: UserCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    # ✅ username check
+    if await db.scalar(select(User).where(User.username == user.username)):
+        raise HTTPException(status_code=400, detail="Username already exists")
 
-    hashed_pw = password_hash(user.password)
+    # ✅ email check
+    if await db.scalar(select(User).where(User.email == user.email)):
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    # ✅ phone check (agar bo‘sh bo‘lmasa)
+    if user.phone:
+        if await db.scalar(select(User).where(User.phone == user.phone)):
+            raise HTTPException(status_code=400, detail="Phone already exists")
+
+    hashed_pw = password_hash(user.password) # type: ignore
 
     new_user = User(
         full_name=user.full_name,
@@ -34,19 +46,29 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
         bio=user.bio or "",
         profile_image="default.png",
         role=user.role or "student",
+        auth_provider="local",
     )
 
     db.add(new_user)
-    await db.commit()
+
+    try:
+        await db.commit()
+    except IntegrityError:  # noqa: F821
+        await db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="User with provided data already exists",
+        )
+
     await db.refresh(new_user)
 
-    token = create_access_token({"user_id": new_user.id})
+    token = create_access_token({"sub": new_user.username})
 
     return {
         "message": "User registered successfully",
         "access_token": token,
         "token_type": "bearer",
-        "user": UserResponse.model_validate(new_user)
+        "user": UserResponse.model_validate(new_user),
     }
 
 
@@ -58,7 +80,7 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Async
     result = await db.execute(select(User).where(User.username == form_data.username))
     user = result.scalars().first()
 
-    if not user or not verify_password(form_data.password, user.password):
+    if not user or not verify_password(form_data.password, user.password): # type: ignore
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = create_access_token({"sub": user.username})

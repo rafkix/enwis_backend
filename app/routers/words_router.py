@@ -35,9 +35,9 @@ def sm2_update(user_word: UserWord, quality: int) -> dict:
     returns dict with new efactor, interval_days, repetitions, next_review_at, stage
     """
     # read existing
-    ef = float(user_word.efactor or 2.5)
-    reps = int(user_word.repetitions or 0)
-    interval = int(user_word.interval_days or 0)
+    ef = float(user_word.efactor or 2.5) # type: ignore
+    reps = int(user_word.repetitions or 0) # type: ignore
+    interval = int(user_word.interval_days or 0) # type: ignore
 
     if quality < 3:
         reps = 0
@@ -206,7 +206,7 @@ async def create_word(
     # link categories (optional)
     if getattr(payload, "categories", None):
         # validate categories exist and create pivot rows
-        for cat_id in payload.categories:
+        for cat_id in payload.categories: # type: ignore
             # ensure category exists
             res = await db.execute(select(WordCategory).where(WordCategory.id == cat_id))
             cat = res.scalars().first()
@@ -318,7 +318,7 @@ async def review_user_word(user_word_id: int, payload: ReviewAttempt,
     # fetch user_word
     res = await db.execute(select(UserWord).where(UserWord.id == user_word_id))
     uw = res.scalars().first()
-    if not uw or uw.user_id != current_user.id:
+    if not uw or uw.user_id != current_user.id: # type: ignore
         raise HTTPException(404, "UserWord not found")
 
     # apply SM-2 update
@@ -329,8 +329,8 @@ async def review_user_word(user_word_id: int, payload: ReviewAttempt,
     uw.interval_days = upd["interval_days"]
     uw.repetitions = upd["repetitions"]
     uw.next_review_at = upd["next_review_at"]
-    uw.last_reviewed_at = datetime.utcnow()
-    uw.streak = uw.streak + 1 if payload.quality >= 3 else 0
+    uw.last_reviewed_at = datetime.utcnow() # type: ignore
+    uw.streak = uw.streak + 1 if payload.quality >= 3 else 0 # type: ignore
     # update stage enum string or actual Enum depending on model
     try:
         uw.stage = upd["stage"]

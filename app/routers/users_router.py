@@ -32,11 +32,11 @@ async def update_profile(
 
     # Faqat kelgan maydonlarni yangilash
     if payload.full_name is not None:
-        user.full_name = payload.full_name
+        user.full_name = payload.full_name # type: ignore
     if payload.bio is not None:
-        user.bio = payload.bio
+        user.bio = payload.bio # type: ignore
     if payload.level is not None:
-        user.level = payload.level
+        user.level = payload.level # type: ignore
 
     # 🔥 Yodda saqlanadigan joy — ORM orqali update
     db.add(user)
@@ -52,10 +52,10 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not verify_password(data.old_password, current_user.password):
+    if not verify_password(data.old_password, current_user.password): # type: ignore
         raise HTTPException(status_code=400, detail="Old password is incorrect")
 
-    current_user.password = password_hash(data.new_password)
+    current_user.password = password_hash(data.new_password) # type: ignore
     await db.commit()
     await db.refresh(current_user)
 
@@ -80,7 +80,7 @@ async def upload_avatar(
         buffer.write(await file.read())
 
     # ❗ DBga faqat filename yoziladi
-    current_user.profile_image = filename
+    current_user.profile_image = filename # type: ignore
 
     await db.commit()
     await db.refresh(current_user)

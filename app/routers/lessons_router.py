@@ -57,11 +57,11 @@ async def update_lesson(
     if current_user.role not in ["admin", "mentor", "teacher"]:
         raise HTTPException(status_code=403, detail="Only admins, teachers, and mentors can update lessons")
 
-    lesson.title = data.title
-    lesson.description = data.description
-    lesson.video_url = data.video_url
-    lesson.order = data.order
-    lesson.course_id = data.course_id
+    lesson.title = data.title # type: ignore
+    lesson.description = data.description # type: ignore
+    lesson.video_url = data.video_url # type: ignore
+    lesson.order = data.order # type: ignore
+    lesson.course_id = data.course_id # type: ignore
 
     db.add(lesson)
     await db.commit()

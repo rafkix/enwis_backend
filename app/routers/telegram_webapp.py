@@ -65,4 +65,3 @@ async def telegram_register(payload: TelegramRegisterSchema, db: AsyncSession = 
         "access_token": token,
         "user": payload
     }
-    

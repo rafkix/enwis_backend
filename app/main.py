@@ -8,6 +8,7 @@ import os
 from app.database import init_db
 from app.routers import (
     auth_router,
+    reading_router,
     users_router,
     lessons_router,
     courses_router,
@@ -25,6 +26,8 @@ app = FastAPI(
     title="Enwis Backend API",
     version="1.0.0",
     description="Enwis — AI-powered language learning platform",
+    redoc_url=None,
+    docs_url="/my/api/docs",
 )
 
 # ------------------------------------------------------------------
@@ -79,14 +82,15 @@ app.add_middleware(
 
 API_PREFIX = "/v1/api"
 
-app.include_router(auth_router.router, prefix=API_PREFIX, tags=["Auth"])
-app.include_router(users_router.router, prefix=API_PREFIX, tags=["Users"])
-app.include_router(lessons_router.router, prefix=API_PREFIX, tags=["Lessons"])
-app.include_router(courses_router.router, prefix=API_PREFIX, tags=["Courses"])
-app.include_router(course_category.router, prefix=API_PREFIX, tags=["Course Categories"])
-app.include_router(words_router.router, prefix=API_PREFIX, tags=["Words"])
-app.include_router(daily_vocab.router, prefix=API_PREFIX, tags=["Daily Vocabulary"])
-app.include_router(telegram_webapp.router, prefix=API_PREFIX, tags=["Telegram"])
+app.include_router(auth_router.router, prefix=API_PREFIX)
+app.include_router(users_router.router, prefix=API_PREFIX)
+app.include_router(reading_router.router, prefix=API_PREFIX)
+app.include_router(lessons_router.router, prefix=API_PREFIX)
+app.include_router(courses_router.router, prefix=API_PREFIX)
+app.include_router(course_category.router, prefix=API_PREFIX)
+app.include_router(words_router.router, prefix=API_PREFIX)
+app.include_router(daily_vocab.router, prefix=API_PREFIX)
+app.include_router(telegram_webapp.router, prefix=API_PREFIX)
 
 # ------------------------------------------------------------------
 # STARTUP

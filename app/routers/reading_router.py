@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.reading import (
+from app.models.reading_model import (
     ReadingTest,
     ReadingPart,
     ReadingQuestion,

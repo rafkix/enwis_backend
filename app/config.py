@@ -15,7 +15,7 @@ TOKEN_EXPIRE_MINUTES = 120
 # 🌐 OAuth (external logins)
 GOOGLE_CLIENT_ID="260764636744-0iukf6ukmljlatu0ulfrcl96s87e13l5.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET="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"
-TELEGRAM_BOT_TOKEN="8453663132:AAGPfG-yhzZWKFQ_Sg2oMY7RpuINC6Mr3YY"
+TELEGRAM_BOT_TOKEN="8542032478:AAFzdZ8JnvL4gGYugIEPs1GMEA0gdQU7reo"
 
 ALLOWED_ORIGINS = ["*", "enwis.uz", "www.enwis.uz", "api.enwis.uz", "app.enwis.uz"]
 

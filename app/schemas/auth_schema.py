@@ -42,7 +42,8 @@ class TelegramRegisterSchema(BaseModel):
     bio: str | None = ""
     profile_image: str | None = "default.png"
 
-
+class TelegramAuthSchema(BaseModel):
+    tgAuthResult: str
 
 class UserLogin(BaseModel):
     username: str

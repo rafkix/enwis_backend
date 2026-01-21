@@ -9,18 +9,21 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
+from app.bot.handlers import router as registration_router
 
-# Handlerlarni import qilish
-try:
-    from app.bot.handlers import router as registration_router
-except ImportError:
-    registration_router = None
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-API_BASE_URL = "http://127.0.0.1:8000"
+
+API_BASE_URL = "https://api.enwis.uz"
 BOT_TOKEN = "8542032478:AAHD-gX0AVdt2NPcd8NtfoBaw3hD9_J6HMY"
 
+
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
 router = Router()
 
 @router.message(CommandStart())
@@ -70,7 +73,7 @@ async def start_handler(message: Message, command: CommandObject, state: FSMCont
                     else:
                         await message.answer(
                             "🔐 <b>Tasdiqlash kodi</b>\n\n"
-                            f"<pre>{code}</pre>\n\n"
+                            f"<code>{code}</code>\n\n"
                             "⏳ Kod 5 daqiqa amal qiladi.\n"
                             "🌐 Uni saytga qaytib kiriting."
                         )
@@ -89,8 +92,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     
     # Routerlarni qo'shish (Tartib muhim: avval registratsiya, keyin start)
-    if registration_router:
-        dp.include_router(registration_router)
+    dp.include_router(registration_router)
     dp.include_router(router)
     
     print("🤖 Bot ishga tushdi...")

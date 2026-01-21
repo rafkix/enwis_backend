@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Boolean, Column, ForeignKey, Integer, String, Text,
-    DateTime
+    DateTime, BigInteger
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -29,7 +29,7 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
 
     google_id = Column(String, unique=True, nullable=True)
-    telegram_id = Column(String, unique=True, nullable=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from aiogram import F
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, BigInteger
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -14,7 +14,7 @@ class PhoneVerifyCode(Base):
     phone = Column(String(30), index=True, nullable=False)
     code = Column(String(10), nullable=False)
 
-    telegram_id = Column(String, nullable=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=True)
 
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_used = Column(Boolean, default=False)

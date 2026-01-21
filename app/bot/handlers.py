@@ -10,11 +10,12 @@ from aiogram.fsm.context import FSMContext
 from app.bot.states import UserRegisterState
 
 router = Router()
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = "https://api.enwis.uz"
 
 # --- 1. RO'YXATDAN O'TISHNI BOSHLASH ---
 @router.callback_query(F.data == "start_register_flow")
 async def callback_register(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await callback.message.delete()
     await callback.message.answer("📝 <b>Ro'yxatdan o'tish boshlandi.</b>\n\nIltimos, <b>To'liq ismingizni</b> kiriting:",parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_full_name)
@@ -135,7 +136,7 @@ async def finish_registration(message: Message, state: FSMContext):
                                 f"👤 F.I.SH: <code>{user_data.get('full_name')}</code>\n"
                                 f"📞 Tel: <code>{clean_phone}</code>\n\n"
                                 f"🔐 Saytga kirish uchun kodingiz:\n"
-                                f"<b><pre>{login_code}</pre></b>\n\n"
+                                f"<b><code>{login_code}</code></b>\n\n"
                                 f"🌐 Saytga qaytib ushbu kodni kiriting.",
                                 parse_mode="HTML"
                             )

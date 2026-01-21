@@ -36,7 +36,9 @@ origins = [
     "http://127.0.0.1:3000",
     "https://enwis.uz",
     "https://app.enwis.uz",
-    "https://api.enwis.uz"
+    "https://api.enwis.uz",
+    "https://cefr.enwis.uz",
+    "https://ielts.enwis.uz"
 ]
 
 if not os.path.exists("static"):

@@ -56,8 +56,10 @@ class ListeningPartBase(BaseModel):
 class ListeningExamBase(BaseModel):
     id: str 
     title: str
-    isDemo: bool = Field(False, alias="is_demo")
-    isFree: bool = Field(False, alias="is_free")
+    isDemo: Optional[bool] = Field(None, alias="is_demo")
+    isFree: Optional[bool] = Field(None, alias="is_free")
+    isMock: bool = Field(False, alias="is_mock")
+    isActive: bool = Field(False, alias="is_active")
     sections: str
     level: str
     duration: int
@@ -77,6 +79,8 @@ class ListeningExamUpdate(BaseModel):
     title: Optional[str] = None
     isDemo: Optional[bool] = Field(None, alias="is_demo")
     isFree: Optional[bool] = Field(None, alias="is_free")
+    isMock: bool = Field(False, alias="is_mock")
+    isActive: bool = Field(False, alias="is_active")
     level: Optional[str] = None
     duration: Optional[int] = None
 

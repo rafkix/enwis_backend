@@ -42,6 +42,8 @@ class ListeningService:
             title=data.title,
             is_demo=data.isDemo,
             is_free=data.isFree,
+            is_mock=data.isMock,
+            is_active=data.isActive,
             sections=data.sections,
             level=data.level,
             duration=data.duration,
@@ -248,6 +250,8 @@ class ListeningService:
             exam.title = data.title
             exam.is_demo = data.isDemo
             exam.is_free = data.isFree
+            exam.is_mock = data.isMock
+            exam.is_active = data.isActive
             exam.sections = data.sections
             exam.level = data.level
             exam.duration = data.duration

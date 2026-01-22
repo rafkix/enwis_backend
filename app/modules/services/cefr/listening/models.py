@@ -19,6 +19,8 @@ class ListeningExam(Base):
     title = Column(String, nullable=False)
     is_demo = Column(Boolean, default=False)
     is_free = Column(Boolean, default=False)
+    is_mock = Column(Boolean, default=False) # Mock imtihon ekanligini belgilaydi
+    is_active = Column(Boolean, default=True) # Admin vaqtincha yopib qo'yishi uchun
     sections = Column(String) # "Sections: 1, 2, 3..."
     level = Column(String) # "MEDIUM Level"
     duration = Column(Integer) # 35 minut

@@ -1,8 +1,9 @@
-from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+import logging
 from typing import List, Optional, Dict
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select
+from sqlalchemy.orm import selectinload
+from fastapi import HTTPException, status
 
 # Modellarni va sxemalarni to'g'ri yo'ldan import qiling
 from .models import (
@@ -26,11 +27,15 @@ class ReadingExamService:
         exam = Exam(
             id=payload.id,
             title=payload.title,
+            is_demo=payload.isDemo,    # Sxemadagi aliasga moslandi
+            is_free=payload.isFree,
+            is_mock=payload.isMock,
+            is_active=payload.isActive,
             cefr_level=payload.cefr_level,
             duration_minutes=payload.duration_minutes,
             language=payload.language,
             type=payload.type,
-            total_questions=payload.total_questions # <-- BU QATOR MUHIM (JSON dagi malumot uchun)
+            total_questions=payload.total_questions
         )
 
         for p_data in payload.parts:
@@ -60,10 +65,13 @@ class ReadingExamService:
             exam.parts.append(part)
 
         self.db.add(exam)
-        await self.db.commit()
-        
-        # MissingGreenlet xatosini oldini olish uchun hamma narsani yuklab qaytaramiz
-        return await self.get_exam(exam.id)
+        try:
+            await self.db.commit()
+            return await self.get_exam(exam.id)
+        except Exception as e:
+            await self.db.rollback()
+            logging.error(f"Create Exam Error: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Imtihonni saqlashda xatolik: {str(e)}")
 
     # ----------------------------------------------------------------
     # 2. GET: Imtihonni barcha relationship'lari bilan olish
@@ -79,40 +87,59 @@ class ReadingExamService:
             )
         )
         result = await self.db.execute(stmt)
-        return result.unique().scalar_one_or_none()
-    
+        exam = result.unique().scalar_one_or_none()
+        if not exam:
+            return None
+        return exam
+
     # ----------------------------------------------------------------
-    # 3. UPDATE: Mavjud imtihonni yangilash
+    # 3. UPDATE: Mavjud imtihonni yangilash (Deep Update)
     # ----------------------------------------------------------------
     async def update_exam(self, exam_id: str, data: ExamUpdate):
         exam = await self.get_exam(exam_id)
-        if not exam: return None
+        if not exam: 
+            raise HTTPException(status_code=404, detail="Exam topilmadi")
 
         # Asosiy maydonlarni yangilash
-        if data.title: exam.title = data.title
-        if data.cefr_level: exam.cefr_level = data.cefr_level
-        if data.duration_minutes: exam.duration_minutes = data.duration_minutes
-        if data.language: exam.language = data.language
-        if data.total_questions: exam.total_questions = data.total_questions
+        if data.title is not None: exam.title = data.title
+        if data.cefr_level is not None: exam.cefr_level = data.cefr_level
+        if data.duration_minutes is not None: exam.duration_minutes = data.duration_minutes
+        if data.isMock is not None: exam.is_mock = data.isMock
+        if data.isActive is not None: exam.is_active = data.isActive
+        if data.total_questions is not None: exam.total_questions = data.total_questions
 
         # Qismlarni yangilash (eskisini o'chirib yangisini yozadi)
         if data.parts is not None:
-            exam.parts.clear() 
+            # Cascade delete tufayli ReadingPart o'chsa, Question va Option ham o'chadi
+            await self.db.execute(delete(ReadingPart).where(ReadingPart.exam_id == exam_id))
+            await self.db.flush()
+
             for p_data in data.parts:
-                part = ReadingPart(title=p_data.title, description=p_data.description, passage=p_data.passage)
+                part = ReadingPart(
+                    title=p_data.title, 
+                    description=p_data.description, 
+                    passage=p_data.passage
+                )
                 for q_idx, q_data in enumerate(p_data.questions):
                     question = Question(
                         question_number=q_data.question_number or (q_idx + 1),
-                        type=q_data.type, text=q_data.text, correct_answer=q_data.correct_answer,
+                        type=q_data.type, 
+                        text=q_data.text, 
+                        correct_answer=q_data.correct_answer,
                         word_limit=q_data.word_limit
                     )
-                    for opt in (q_data.options or []):
-                        question.options.append(QuestionOption(label=opt.label, value=opt.value))
+                    if q_data.options:
+                        for opt in q_data.options:
+                            question.options.append(QuestionOption(label=opt.label, value=opt.value))
                     part.questions.append(question)
                 exam.parts.append(part)
 
-        await self.db.commit()
-        return await self.get_exam(exam.id)
+        try:
+            await self.db.commit()
+            return await self.get_exam(exam.id)
+        except Exception as e:
+            await self.db.rollback()
+            raise HTTPException(status_code=400, detail=f"Update xatoligi: {str(e)}")
 
     # ----------------------------------------------------------------
     # 4. SUBMIT: Javoblarni tekshirish va natijani hisoblash
@@ -133,7 +160,7 @@ class ReadingExamService:
                 user_ans = data.user_answers.get(q_id_str, "").strip().lower()
                 correct_ans = q.correct_answer.strip().lower()
                 
-                # Ko'p variantli javoblar (apple/an apple)
+                # 'apple/an apple' kabi ko'p variantli javoblarni tekshirish
                 valid_options = [a.strip() for a in correct_ans.split("/")]
                 is_correct = user_ans in valid_options
                 
@@ -168,33 +195,74 @@ class ReadingExamService:
             "summary": new_result,
             "review": review_items
         }
-
+    
     # ----------------------------------------------------------------
-    # 5. REVIEW & LIST & METRICS
+    # 5. GET RESULT WITH REVIEW: Natija va xatolar tahlili
     # ----------------------------------------------------------------
-    async def get_result_with_review(self, result_id: int, user_id: int):
-        stmt = select(ExamResult).where(ExamResult.id == result_id, ExamResult.user_id == user_id)
+    async def get_result_with_review(self, result_id: int, user_id: int) -> Optional[Dict]:
+        """
+        Natija detallari va har bir savol bo'yicha tahlilni qaytaradi.
+        """
+        # 1. Natijani bazadan qidirish
+        stmt = select(ExamResult).where(
+            ExamResult.id == result_id, 
+            ExamResult.user_id == user_id
+        )
         res = await self.db.execute(stmt)
         result_obj = res.scalar_one_or_none()
         
         if not result_obj:
             return None
 
+        # 2. Imtihon strukturasini savollari bilan yuklash
         exam = await self.get_exam(result_obj.exam_id)
+        if not exam:
+            return None
+
         review_data = []
         
+        # 3. Imtihon qismlari va savollarini aylanib chiqish
         for part in exam.parts:
             for q in part.questions:
+                # Foydalanuvchi javobini olish (JSON dan)
                 u_ans = result_obj.user_answers.get(str(q.id), "")
+                
+                # To'g'ri javoblar ro'yxatini shakllantirish (slash bilan bo'lingan bo'lsa)
+                correct_ans_raw = q.correct_answer.strip().lower()
+                valid_options = [a.strip() for a in correct_ans_raw.split("/")]
+                
+                # Tekshirish
+                is_correct = u_ans.strip().lower() in valid_options
+                
                 review_data.append({
                     "question_number": q.question_number,
                     "user_answer": u_ans,
-                    "correct_answer": q.correct_answer,
-                    "is_correct": u_ans.strip().lower() == q.correct_answer.strip().lower(),
+                    "correct_answer": q.correct_answer, # Asl holatdagi to'g'ri javob
+                    "is_correct": is_correct,
                     "type": q.type
                 })
         
-        return {"summary": result_obj, "review": review_data}
+        # 4. Sxemaga mos formatda qaytarish
+        return {
+            "summary": result_obj, # Bu ResultResponse sxemasiga tushadi
+            "review": review_data  # Bu List[QuestionReview] sxemasiga tushadi
+        }
+
+    # ----------------------------------------------------------------
+    # 6. METRICS & HELPERS
+    # ----------------------------------------------------------------
+    def _calculate_metrics(self, correct: int, total: int):
+        # Reading uchun Agentlik shkalasi (taxminiy)
+        if correct >= 28:
+            score = round(65 + (correct - 28) * 1.42, 1)
+            return min(score, 75.0), "C1"
+        if correct >= 18:
+            score = round(51 + (correct - 18) * 1.4, 1)
+            return score, "B2"
+        if correct >= 10:
+            score = round(38 + (correct - 10) * 1.62, 1)
+            return score, "B1"
+        return round(correct * 3.7, 1), "B1 dan past"
 
     async def get_all_exams(self):
         stmt = select(Exam).options(selectinload(Exam.parts))
@@ -212,12 +280,3 @@ class ReadingExamService:
         await self.db.delete(exam)
         await self.db.commit()
         return True
-
-    def _calculate_metrics(self, correct: int, total: int):
-        if correct >= 28:
-            return 65 + (correct - 28) * 1.4, "C1"
-        if correct >= 18:
-            return 51 + (correct - 18) * 1.4, "B2"
-        if correct >= 10:
-            return 38 + (correct - 10) * 1.4, "B1"
-        return correct * 2, "B1 dan past"

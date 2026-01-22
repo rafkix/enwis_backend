@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import Dict, List, Optional
 from enum import Enum
 from datetime import datetime
@@ -19,17 +19,18 @@ class OptionCreate(BaseModel):
     value: str  # Variant matni
 
 class OptionResponse(OptionCreate):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
 # --- QUESTION SCHEMAS ---
 class QuestionCreate(BaseModel):
-    question_number: Optional[int] = None
+    question_number: Optional[int] = Field(None, alias="question_number")
     type: QuestionType
     text: str
-    correct_answer: str
-    word_limit: Optional[int] = None
+    correct_answer: str = Field(..., alias="correct_answer")
+    word_limit: Optional[int] = Field(None, alias="word_limit")
     options: Optional[List[OptionCreate]] = []
-    # total_questions bu yerdan olib tashlandi, chunki u Exam darajasida
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class QuestionResponse(BaseModel):
     id: int
@@ -40,7 +41,7 @@ class QuestionResponse(BaseModel):
     word_limit: Optional[int] = None
     options: List[OptionResponse] = []
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # --- PART SCHEMAS ---
 class ReadingPartCreate(BaseModel):
@@ -60,40 +61,53 @@ class ReadingPartResponse(BaseModel):
 
 # --- EXAM SCHEMAS ---
 class ExamCreate(BaseModel):
-    id: str  # Slugs: reading-test-1
+    id: str  # slugs: reading-test-1
     title: str
-    cefr_level: str
-    duration_minutes: int
+    isDemo: bool = Field(False, alias="is_demo")
+    isFree: bool = Field(False, alias="is_free")
+    isMock: bool = Field(False, alias="is_mock")
+    isActive: bool = Field(True, alias="is_active")
+    cefr_level: str = Field(..., alias="cefr_level")
+    duration_minutes: int = Field(60, alias="duration_minutes")
     language: str = "en"
-    type: str = "READING"
-    total_questions: int = 35
+    total_questions: int = Field(35, alias="total_questions")
     parts: List[ReadingPartCreate]
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class ExamUpdate(BaseModel):
     title: Optional[str] = None
-    cefr_level: Optional[str] = None
-    duration_minutes: Optional[int] = None
+    isDemo: Optional[bool] = Field(None, alias="is_demo")
+    isFree: Optional[bool] = Field(None, alias="is_free")
+    isMock: Optional[bool] = Field(None, alias="is_mock")
+    isActive: Optional[bool] = Field(None, alias="is_active")
+    cefr_level: Optional[str] = Field(None, alias="cefr_level")
+    duration_minutes: Optional[int] = Field(None, alias="duration_minutes")
     language: Optional[str] = None
-    total_questions: Optional[int] = None
+    total_questions: Optional[int] = Field(None, alias="total_questions")
     parts: Optional[List[ReadingPartCreate]] = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class ExamResponse(BaseModel):
     id: str
     title: str
+    isDemo: bool = Field(False, alias="is_demo")
+    isFree: bool = Field(False, alias="is_free")
+    isMock: bool = Field(False, alias="is_mock")
+    isActive: bool = Field(True, alias="is_active")
     cefr_level: str
     duration_minutes: int
     language: str
-    type: str
     total_questions: int
     parts: List[ReadingPartResponse]
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-# --- RESULT & SUBMISSION SCHEMAS ---
-
+# --- RESULT & SUBMISSION ---
 class ResultSubmission(BaseModel):
     exam_id: str
-    user_answers: Dict[str, str] = Field(..., description="Savol ID va javob: {'101': 'A'}")
+    user_answers: Dict[str, str] = Field(..., description="Savol ID: Javob")
 
 class ResultResponse(BaseModel):
     id: int
@@ -106,13 +120,14 @@ class ResultResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# Review (Tahlil) sahifasi uchun detallar
 class QuestionReview(BaseModel):
     question_number: int
     user_answer: Optional[str]
     correct_answer: str
     is_correct: bool
     type: QuestionType
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ReadingResultDetailResponse(BaseModel):
     summary: ResultResponse

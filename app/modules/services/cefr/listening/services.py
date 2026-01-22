@@ -1,6 +1,7 @@
+import logging
 from typing import Dict, List
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from .models import (
@@ -221,3 +222,103 @@ class ListeningService:
             "summary": result_data,
             "review": review_data
         }
+        
+    async def update_exam(self, exam_id: str, data: ListeningExamCreate):
+        # 1. Avval mavjud imtihonni qidiramiz
+        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
+        result = await self.db.execute(stmt)
+        exam = result.scalar_one_or_none()
+
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Yangilash uchun imtihon topilmadi"
+            )
+
+        try:
+            # 2. ESKI MA'LUMOTLARNI TOZALASH
+            # Cascade o'rnatilgani uchun 'parts'ni o'chirish uning ichidagi hamma narsani tozalaydi
+            # Lekin imtihonning o'zini (ID sini) saqlab qolamiz
+            await self.db.execute(
+                delete(ListeningPart).where(ListeningPart.exam_id == exam_id)
+            )
+            await self.db.flush()
+
+            # 3. ASOSIY IMTIHON MA'LUMOTLARINI YANGILASH
+            exam.title = data.title
+            exam.is_demo = data.isDemo
+            exam.is_free = data.isFree
+            exam.sections = data.sections
+            exam.level = data.level
+            exam.duration = data.duration
+            exam.total_questions = data.totalQuestions
+
+            # 4. YANGI QISMLARNI (PARTS) QAYTADAN YARATISH
+            for p_data in data.parts:
+                new_part = ListeningPart(
+                    exam_id=exam.id,
+                    part_number=p_data.partNumber,
+                    title=p_data.title,
+                    instruction=p_data.instruction,
+                    task_type=p_data.taskType,
+                    audio_label=p_data.audioLabel,
+                    context=p_data.context,
+                    passage=p_data.passage,
+                    map_image=p_data.mapImage
+                )
+                self.db.add(new_part)
+                await self.db.flush() # Part ID sini olish
+
+                # Part darajasidagi Optionlar (Matching/Map uchun)
+                if p_data.options:
+                    for opt in p_data.options:
+                        self.db.add(ListeningPartOption(
+                            part_id=new_part.id,
+                            value=opt.value,
+                            label=opt.label
+                        ))
+
+                # Savollarni aylanish
+                for q_data in p_data.questions:
+                    new_question = ListeningQuestion(
+                        part_id=new_part.id,
+                        question_number=q_data.questionNumber,
+                        type=q_data.type,
+                        question=q_data.question,
+                        correct_answer=q_data.correctAnswer
+                    )
+                    self.db.add(new_question)
+                    await self.db.flush() # Question ID sini olish
+
+                    # Savol darajasidagi Optionlar (Multiple Choice uchun)
+                    if q_data.options:
+                        for opt in q_data.options:
+                            self.db.add(ListeningQuestionOption(
+                                question_id=new_question.id,
+                                value=opt.value,
+                                label=opt.label
+                            ))
+
+            # 5. YAKUNIY SAQLASH
+            await self.db.commit()
+            return await self.get_exam_by_id(exam.id)
+
+        except Exception as e:
+            await self.db.rollback()
+            logging.error(f"Update Exam Error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Yangilashda xatolik yuz berdi: {str(e)}"
+            )
+            
+    async def delete_exam(self, exam_id: str):
+        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
+        result = await self.db.execute(stmt)
+        exam = result.scalar_one_or_none()
+
+        if not exam:
+            raise HTTPException(status_code=404, detail="Imtihon topilmadi")
+
+        await self.db.delete(exam)
+        await self.db.commit()
+        return {"message": f"Imtihon {exam_id} muvaffaqiyatli o'chirildi"}    

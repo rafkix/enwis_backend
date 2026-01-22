@@ -62,7 +62,11 @@ async def get_exam_by_id(exam_id: str, db: AsyncSession = Depends(get_db)):
     return await service.get_exam_by_id(exam_id)
 
 @router.put("/{exam_id}", response_model=ListeningExamResponse)
-async def update_exam(exam_id: str, data: ListeningExamUpdate, db: AsyncSession = Depends(get_db)):
+async def update_exam(
+    exam_id: str, 
+    data: ListeningExamCreate, # To'liq yangilash uchun Create sxemasini ishlatamiz
+    db: AsyncSession = Depends(get_db)
+):
     service = ListeningService(db)
     return await service.update_exam(exam_id, data)
 

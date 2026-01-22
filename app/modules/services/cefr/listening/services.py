@@ -33,49 +33,81 @@ def get_cefr_level(std_score: float) -> str:
 class ListeningService:
     def __init__(self, db):
         self.db = db
-        
+
     async def create_exam(self, data: ListeningExamCreate):
-        exists = await self.db.scalar(
-            select(ListeningExam).where(ListeningExam.id == data.id)
+        # 1. Asosiy imtihonni (Exam) yaratish
+        new_exam = ListeningExam(
+            id=data.id,
+            title=data.title,
+            is_demo=data.isDemo,
+            is_free=data.isFree,
+            sections=data.sections,
+            level=data.level,
+            duration=data.duration,
+            total_questions=data.totalQuestions
         )
-        if exists:
-            raise HTTPException(400, "Listening exam already exists")
-
-        exam = ListeningExam(**data.model_dump(exclude={"parts"}))
-        self.db.add(exam)
-        await self.db.flush()
-
-        for part_data in data.parts:
-            part = ListeningPart(
-                exam_id=exam.id,
-                **part_data.model_dump(exclude={"questions", "options"})
+        self.db.add(new_exam)
+        
+        # 2. Part (Bo'limlarni) aylanish
+        for p_data in data.parts:
+            new_part = ListeningPart(
+                exam_id=new_exam.id,
+                part_number=p_data.partNumber,
+                title=p_data.title,
+                instruction=p_data.instruction,
+                task_type=p_data.taskType,
+                audio_label=p_data.audioLabel,
+                context=p_data.context,
+                passage=p_data.passage,
+                map_image=p_data.mapImage
             )
-            self.db.add(part)
-            await self.db.flush()
+            self.db.add(new_part)
+            await self.db.flush() # Part ID sini olish uchun
 
-            for opt in part_data.options:
-                self.db.add(ListeningPartOption(part_id=part.id, **opt.model_dump()))
-
-            for q_data in part_data.questions:
-                question = ListeningQuestion(
-                    part_id=part.id,
-                    **q_data.model_dump(exclude={"options"})
-                )
-                self.db.add(question)
-                await self.db.flush()
-
-                for opt in q_data.options:
-                    self.db.add(
-                        ListeningQuestionOption(
-                            question_id=question.id,
-                            **opt.model_dump()
-                        )
+            # 3. Part darajasidagi Optionlarni saqlash (Matching/Map uchun)
+            if p_data.options:
+                for opt in p_data.options:
+                    new_p_opt = ListeningPartOption(
+                        part_id=new_part.id,
+                        value=opt.value,
+                        label=opt.label
                     )
+                    self.db.add(new_p_opt)
 
-        await self.db.commit()
-        await self.db.refresh(exam)
-        return exam
+            # 4. Savollarni (Questions) aylanish
+            for q_data in p_data.questions:
+                new_question = ListeningQuestion(
+                    part_id=new_part.id,
+                    question_number=q_data.questionNumber,
+                    type=q_data.type,
+                    question=q_data.question,
+                    correct_answer=q_data.correctAnswer
+                )
+                self.db.add(new_question)
+                await self.db.flush() # Question ID sini olish uchun
 
+                # 5. Savol darajasidagi Optionlarni saqlash (Multiple Choice bo'lsa)
+                if q_data.options:
+                    for opt in q_data.options:
+                        new_q_opt = ListeningQuestionOption(
+                            question_id=new_question.id,
+                            value=opt.value,
+                            label=opt.label
+                        )
+                        self.db.add(new_q_opt)
+
+        # 6. Hammasini bittada commit qilish
+        try:
+            await self.db.commit()
+            await self.db.refresh(new_exam)
+            return await self.get_exam_by_id(new_exam.id)
+        except Exception as e:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Imtihonni yaratishda xatolik: {str(e)}"
+            )
+        
     async def get_all_exams(self):
         stmt = (
             select(ListeningExam)

@@ -93,23 +93,41 @@ class AuthService:
         clean_phone = re.sub(r'\D', '', data.phone)
         new_code = str(random.randint(100000, 999999))
         
-        # Eski kodlarni o'chirish
-        await self.db.execute(update(PhoneVerifyCode).where(PhoneVerifyCode.phone == clean_phone).values(is_used=True))
+        await self.db.execute(
+            update(PhoneVerifyCode)
+            .where(PhoneVerifyCode.phone == clean_phone)
+            .values(is_used=True)
+        )
         
+        # 2. Foydalanuvchini bazadan qidirish
         user_res = await self.db.execute(select(User).where(User.phone == clean_phone))
         user = user_res.scalars().first()
 
+        # 3. Yangi kodni saqlash
         verify_record = PhoneVerifyCode(
             phone=clean_phone,
             code=new_code,
             telegram_id=data.telegram_id,
             full_name=data.full_name,
             user_id=user.id if user else None,
+            is_used=False, # Yangi kod ishlatilmagan bo'lishi kerak
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)
         )
         self.db.add(verify_record)
+        
+        # 4. Agar foydalanuvchi mavjud bo'lsa, uning telegram_id sini yangilab qo'yamiz (ixtiyoriy)
+        if user:
+            user.telegram_id = data.telegram_id
+            # is_new_user = False bo'ladi
+        
         await self.db.commit()
-        return {"code": new_code, "status": "success"}
+
+        # 5. BOTGA TO'G'RI JAVOB QAYTARISH
+        return {
+            "status": "success",
+            "code": new_code,
+            "is_new_user": user is None  # Agar user topilmasa, True qaytaradi
+        }
     
 
     # 4. KODNI TASDIQLASH (SAYTDA KIRISH UCHUN)

@@ -72,6 +72,8 @@ class ExamCreate(BaseModel):
     language: str = "en"
     total_questions: int = Field(35, alias="total_questions")
     parts: List[ReadingPartCreate]
+    # QO'SHILGAN MAYDON:
+    type: str = Field("READING", description="Imtihon turi: READING yoki LISTENING")
 
     model_config = ConfigDict(populate_by_name=True)
 

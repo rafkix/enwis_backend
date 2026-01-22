@@ -1,4 +1,3 @@
-from sqlite3 import IntegrityError
 from typing import Dict, List
 from datetime import datetime
 from sqlalchemy import select
@@ -36,80 +35,44 @@ class ListeningService:
         self.db = db
         
     async def create_exam(self, data: ListeningExamCreate):
-        # 1️⃣ Exam mavjudligini tekshirish
-        stmt = select(ListeningExam).where(ListeningExam.id == data.id)
-        res = await self.db.execute(stmt)
-        if res.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Listening exam already exists"
-            )
-
-        # 2️⃣ Exam yaratish
-        exam = ListeningExam(
-            id=data.id,
-            title=data.title,
-            is_demo=data.is_demo,
-            is_free=data.is_free,
-            sections=data.sections,
-            level=data.level,
-            duration=data.duration,
-            total_questions=data.total_questions
+        exists = await self.db.scalar(
+            select(ListeningExam).where(ListeningExam.id == data.id)
         )
+        if exists:
+            raise HTTPException(400, "Listening exam already exists")
 
+        exam = ListeningExam(**data.model_dump(exclude={"parts"}))
         self.db.add(exam)
-        await self.db.flush()  # ID larni olish uchun
+        await self.db.flush()
 
-        # 3️⃣ Parts, Questions, Options
         for part_data in data.parts:
             part = ListeningPart(
                 exam_id=exam.id,
-                part_number=part_data.part_number,
-                title=part_data.title,
-                instruction=part_data.instruction,
-                task_type=part_data.task_type,
-                audio_label=part_data.audio_label,
-                context=part_data.context,
-                passage=part_data.passage,
-                map_image=part_data.map_image
+                **part_data.model_dump(exclude={"questions", "options"})
             )
             self.db.add(part)
             await self.db.flush()
 
-            # Part options
-            for opt in part_data.options or []:
-                self.db.add(ListeningPartOption(
-                    part_id=part.id,
-                    value=opt.value,
-                    label=opt.label
-                ))
+            for opt in part_data.options:
+                self.db.add(ListeningPartOption(part_id=part.id, **opt.model_dump()))
 
-            # Questions
             for q_data in part_data.questions:
                 question = ListeningQuestion(
                     part_id=part.id,
-                    question_number=q_data.question_number,
-                    type=q_data.type,
-                    question=q_data.question,
-                    correct_answer=q_data.correct_answer
+                    **q_data.model_dump(exclude={"options"})
                 )
                 self.db.add(question)
                 await self.db.flush()
 
-                for opt in q_data.options or []:
-                    self.db.add(ListeningQuestionOption(
-                        question_id=question.id,
-                        value=opt.value,
-                        label=opt.label
-                    ))
+                for opt in q_data.options:
+                    self.db.add(
+                        ListeningQuestionOption(
+                            question_id=question.id,
+                            **opt.model_dump()
+                        )
+                    )
 
-        # 4️⃣ Commit
-        try:
-            await self.db.commit()
-        except IntegrityError:
-            await self.db.rollback()
-            raise HTTPException(400, "Invalid exam structure")
-
+        await self.db.commit()
         await self.db.refresh(exam)
         return exam
 
@@ -226,40 +189,3 @@ class ListeningService:
             "summary": result_data,
             "review": review_data
         }
-        
-    async def update_exam(self, exam_id: str, data: ListeningExamUpdate):
-        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
-        res = await self.db.execute(stmt)
-        exam = res.scalar_one_or_none()
-
-        if not exam:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Listening exam not found"
-            )
-
-        update_data = data.model_dump(exclude_unset=True)
-
-        for field, value in update_data.items():
-            setattr(exam, field, value)
-
-        await self.db.commit()
-        await self.db.refresh(exam)
-
-        return exam
-    
-    async def delete_exam(self, exam_id: str):
-        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
-        res = await self.db.execute(stmt)
-        exam = res.scalar_one_or_none()
-
-        if not exam:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Listening exam not found"
-            )
-
-        await self.db.delete(exam)
-        await self.db.commit()
-
-        return {"detail": "Listening exam deleted successfully"}

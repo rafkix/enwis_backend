@@ -70,8 +70,23 @@ class ListeningQuestionCreate(ListeningQuestionBase):
 class ListeningPartCreate(ListeningPartBase):
     questions: List[ListeningQuestionCreate]
 
-class ListeningExamCreate(ListeningExamBase):
-    parts: List[ListeningPartCreate]
+
+class ListeningExamCreate(BaseModel):
+    id: str
+    title: str
+
+    is_demo: bool = Field(alias="isDemo")
+    is_free: bool = Field(alias="isFree")
+
+    sections: Optional[str] = None
+    level: str
+    duration: int
+    total_questions: int
+
+    parts: List
+
+    class Config:
+        populate_by_name = True
 
 class ListeningExamUpdate(BaseModel):
     title: Optional[str] = None

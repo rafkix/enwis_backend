@@ -16,8 +16,11 @@ API_BASE_URL = "https://api.enwis.uz"
 @router.callback_query(F.data == "start_register_flow")
 async def callback_register(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.delete()
-    await callback.message.answer("📝 <b>Ro'yxatdan o'tish boshlandi.</b>\n\nIltimos, <b>To'liq ismingizni</b> kiriting:",parse_mode="HTML")
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await callback.message.answer("📝 <b>Ro'yxatdan o'tish boshlandi.</b>\n\nIltimos, <b>To'liq ismingizni</b> kiriting:", parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_full_name)
 
 # --- 2. ISM -> USERNAME ---
@@ -31,7 +34,7 @@ async def get_name(message: Message, state: FSMContext):
 @router.message(UserRegisterState.waiting_for_username)
 async def get_username(message: Message, state: FSMContext):
     if not re.match(r'^[a-zA-Z0-9_]+$', message.text):
-        return await message.answer("❌ Username noto'g'ri. Qayta urinib ko'ring:")
+        return await message.answer("❌ Username noto'g'ri. Faqat lotin harflari, sonlar va '_' ishlating:")
     await state.update_data(username=message.text)
     await message.answer("📧 <b>Email</b> manzilingizni kiriting:", parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_email)
@@ -39,8 +42,8 @@ async def get_username(message: Message, state: FSMContext):
 # --- 4. EMAIL -> PAROL ---
 @router.message(UserRegisterState.waiting_for_email)
 async def get_email(message: Message, state: FSMContext):
-    if "@" not in message.text:
-        return await message.answer("❌ Noto'g'ri email. Qayta kiriting:")
+    if "@" not in message.text or "." not in message.text:
+        return await message.answer("❌ Noto'g'ri email format. Qayta kiriting:")
     await state.update_data(email=message.text)
     await message.answer("🔒 Tizim uchun <b>Parol</b> yarating (kamida 6 ta belgi):", parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_password)
@@ -71,7 +74,7 @@ async def get_age(message: Message, state: FSMContext):
     await message.answer("📊 <b>Ingliz tili darajangizni</b> tanlang:", reply_markup=kb, parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_level)
 
-# --- 7. LEVEL -> TELEFON (OXIRGI BOSQICH) ---
+# --- 7. LEVEL -> TELEFON ---
 @router.message(UserRegisterState.waiting_for_level)
 async def get_level(message: Message, state: FSMContext):
     await state.update_data(level=message.text)
@@ -83,26 +86,27 @@ async def get_level(message: Message, state: FSMContext):
     await message.answer("📱 Ro'yxatdan o'tishni yakunlash uchun <b>Telefon raqamingizni</b> yuboring:", reply_markup=kb, parse_mode="HTML")
     await state.set_state(UserRegisterState.waiting_for_phone)
 
+# --- 8. YAKUNIY RO'YXATDAN O'TISH ---
 @router.message(UserRegisterState.waiting_for_phone)
 async def finish_registration(message: Message, state: FSMContext):
     phone = message.contact.phone_number if message.contact else message.text
     clean_phone = re.sub(r'\D', '', str(phone))
     
     if len(clean_phone) < 9:
-        await message.answer("❌ Noto'g'ri telefon raqami. Iltimos, qaytadan yuboring:")
-        return
+        return await message.answer("❌ Noto'g'ri telefon raqami. Qayta yuboring:")
 
     user_data = await state.get_data()
     
+    # Ma'lumotlarni tozalash va formatlash
     register_payload = {
-        "full_name": user_data.get('full_name'),
-        "username": user_data.get('username'),
-        "email": user_data.get('email'),
-        "password": user_data.get('password'),
-        "phone": clean_phone,
-        "age": int(user_data.get('age', 0)),
-        "level": user_data.get('level', 'beginner'),
-        "telegram_id": str(message.from_user.id),
+        "full_name": str(user_data.get('full_name', message.from_user.full_name)),
+        "username": str(user_data.get('username')),
+        "email": str(user_data.get('email')),
+        "password": str(user_data.get('password')),
+        "phone": str(clean_phone),
+        "age": int(user_data.get('age', 20)),
+        "level": str(user_data.get('level', 'beginner')),
+        "telegram_id": int(message.from_user.id), # Backend BigInt kutyapti, shuning uchun int
         "role": "student",
     }
     
@@ -110,14 +114,16 @@ async def finish_registration(message: Message, state: FSMContext):
 
     async with aiohttp.ClientSession() as session:
         try:
+            # 1. Ro'yxatdan o'tkazish
             reg_url = f"{API_BASE_URL}/v1/api/auth/register/telegram"
             async with session.post(reg_url, json=register_payload, timeout=20) as reg_resp:
                 if reg_resp.status in [200, 201]:
+                    # 2. Kod olish uchun start API'ni chaqirish
                     start_url = f"{API_BASE_URL}/v1/api/auth/bot/start"
                     start_payload = {
                         "phone": clean_phone,
-                        "telegram_id": str(message.from_user.id),
-                        "full_name": user_data.get('full_name')
+                        "telegram_id": int(message.from_user.id),
+                        "full_name": register_payload["full_name"]
                     }
                     
                     async with session.post(start_url, json=start_payload) as start_resp:
@@ -125,15 +131,12 @@ async def finish_registration(message: Message, state: FSMContext):
                             data = await start_resp.json()
                             login_code = data.get("code")
                             
-                            # Xabarni o'chirishda xatolik bo'lsa ham davom etish
-                            try:
-                                await status_msg.delete()
-                            except:
-                                pass
+                            try: await status_msg.delete()
+                            except: pass
 
                             await message.answer(
                                 f"✅ <b>Tabriklaymiz! Ro'yxatdan o'tdingiz.</b>\n\n"
-                                f"👤 F.I.SH: <code>{user_data.get('full_name')}</code>\n"
+                                f"👤 F.I.SH: <code>{register_payload['full_name']}</code>\n"
                                 f"📞 Tel: <code>{clean_phone}</code>\n\n"
                                 f"🔐 Saytga kirish uchun kodingiz:\n"
                                 f"<b><code>{login_code}</code></b>\n\n"
@@ -142,16 +145,16 @@ async def finish_registration(message: Message, state: FSMContext):
                             )
                             await state.clear()
                         else:
-                            await message.answer("✅ Ro'yxatdan o'tdingiz, lekin kod olishda xatolik bo'ldi.")
+                            await message.answer("✅ Ro'yxatdan o'tdingiz, lekin kirish kodini olishda xatolik bo'ldi. Iltimos saytga qayting.")
                             await state.clear()
                 
                 else:
+                    # Backenddan kelgan xatolikni ko'rsatish
                     err_data = await reg_resp.json()
                     detail = err_data.get('detail', 'Xato yuz berdi')
                     if isinstance(detail, list):
                         detail = detail[0].get('msg', 'Ma\'lumotlar xato')
                     
-                    # Edit text o'rniga yangi xabar yuborish xavfsizroq
                     await message.answer(f"❌ Xatolik: {detail}")
 
         except Exception as e:

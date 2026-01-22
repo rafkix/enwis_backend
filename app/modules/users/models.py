@@ -48,6 +48,9 @@ class User(Base):
     
     results = relationship("ExamResult", back_populates="user", cascade="all, delete-orphan")
 
+    phone_verify_codes = relationship("PhoneVerifyCode", back_populates="user", cascade="all, delete-orphan")
+
+    
     user_tasks = relationship(
         "UserTask",
         back_populates="user",

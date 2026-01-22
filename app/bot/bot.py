@@ -29,20 +29,31 @@ router = Router()
 @router.message(CommandStart())
 async def start_handler(message: Message, command: CommandObject, state: FSMContext):
     args = command.args
+    
+    # --- ASOSIY MENYU (Tugmalar) ---
+    # Saytga o'tish va Web App tugmalari
+    main_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 Web App-ni ochish", web_app={"url": "https://cefr.enwis.uz"})]
+    ])
+
     if not args:
-        await message.answer("❌ Iltimos, botga sayt orqali kiring (Raqamingiz tasdiqlanmagan).")
+        await message.answer(
+            "👋 <b>Enwis botiga xush kelibsiz!</b>\n\n"
+            "Platformadan foydalanish uchun saytimizga tashrif buyuring:",
+            reply_markup=main_kb
+        )
         return
 
     # 1. Saytdan kelgan raqamni tozalash
-    # %20, bo'shliq va + belgilarini olib tashlaymiz
     raw_phone = args.replace("%20", "").replace(" ", "").replace("+", "").strip()
     clean_phone = re.sub(r'\D', '', raw_phone)
     
+    # 2. Payloadni Backend Schemasiga (BotStartRequest) moslash
     url = f"{API_BASE_URL}/v1/api/auth/bot/start"
     payload = {
         "phone": clean_phone,
-        "telegram_id": str(message.from_user.id),
-        "full_name": message.from_user.full_name or "Unknown"
+        "telegram_id": int(message.from_user.id),
+        "full_name": message.from_user.full_name or "Unknown User"
     }
 
     try:
@@ -53,41 +64,42 @@ async def start_handler(message: Message, command: CommandObject, state: FSMCont
                     is_new_user = data.get("is_new_user")
                     code = data.get("code")
 
-                    # --- SENARIY 1: YANGI USER (Registratsiya kerak) ---
                     if is_new_user:
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="📝 Ro'yxatdan o'tish", callback_data="start_register_flow")]
+                        # Registratsiya uchun inline tugma
+                        reg_kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="📝 Ro'yxatdan o'tish", callback_data="start_register_flow")],
+                            [InlineKeyboardButton(text="🌐 Saytga qaytish", url="https://enwis.uz")]
                         ])
                         
-                        # FSM ga telefonni saqlaymiz, registratsiya handlerlari foydalanishi uchun
-                        await state.update_data(phone=clean_phone)
+                        await state.update_data(phone=clean_phone, telegram_id=int(message.from_user.id))
                         
                         await message.answer(
                             f"👋 <b>Salom!</b>\n\n"
                             f"Sizning raqamingiz (<code>{clean_phone}</code>) bazada topilmadi.\n"
                             "Xizmatlardan foydalanish uchun ro'yxatdan o'ting:",
-                            reply_markup=kb
+                            reply_markup=reg_kb
                         )
-
-                    # --- SENARIY 2: MAVJUD USER (Login uchun kod) ---
                     else:
+                        # Login kodi bilan birga saytga qaytish tugmasi
+                        login_kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🌐 Saytga o'tish", url="https://enwis.uz")]
+                        ])
+                        
                         await message.answer(
                             "🔐 <b>Tasdiqlash kodi</b>\n\n"
                             f"<code>{code}</code>\n\n"
-                            "⏳ Kod 5 daqiqa amal qiladi.\n"
-                            "🌐 Uni saytga qaytib kiriting."
+                            "⏳ Kod 10 daqiqa amal qiladi.\n"
+                            "🌐 Uni saytga qaytib kiriting.",
+                            reply_markup=login_kb
                         )
                 else:
-                    error_data = await response.json()
-                    detail = error_data.get('detail', 'Noma\'lum xatolik')
-                    await message.answer(f"❌ Xatolik: {detail}")
+                    await message.answer("❌ Backend xatoligi yoki noto'g'ri so'rov.", reply_markup=main_kb)
 
-    except aiohttp.ClientConnectorError:
-        await message.answer("❌ Backend serverga ulanib bo'lmadi. Server yoniqligini tekshiring.")
     except Exception as e:
-        logging.exception("Kutilmagan xatolik:")
-        await message.answer(f"❌ Xatolik yuz berdi: {str(e)}")
-
+        logging.exception("Start Handler Error:")
+        await message.answer(f"❌ Xatolik yuz berdi: {str(e)}", reply_markup=main_kb)
+        
+        
 async def main():
     logging.basicConfig(level=logging.INFO)
     

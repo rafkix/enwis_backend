@@ -1,3 +1,4 @@
+from sqlite3 import IntegrityError
 from typing import Dict, List
 from datetime import datetime
 from sqlalchemy import select
@@ -225,3 +226,40 @@ class ListeningService:
             "summary": result_data,
             "review": review_data
         }
+        
+    async def update_exam(self, exam_id: str, data: ListeningExamUpdate):
+        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
+        res = await self.db.execute(stmt)
+        exam = res.scalar_one_or_none()
+
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Listening exam not found"
+            )
+
+        update_data = data.model_dump(exclude_unset=True)
+
+        for field, value in update_data.items():
+            setattr(exam, field, value)
+
+        await self.db.commit()
+        await self.db.refresh(exam)
+
+        return exam
+    
+    async def delete_exam(self, exam_id: str):
+        stmt = select(ListeningExam).where(ListeningExam.id == exam_id)
+        res = await self.db.execute(stmt)
+        exam = res.scalar_one_or_none()
+
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Listening exam not found"
+            )
+
+        await self.db.delete(exam)
+        await self.db.commit()
+
+        return {"detail": "Listening exam deleted successfully"}

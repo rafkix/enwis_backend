@@ -83,10 +83,11 @@ class ListeningExamCreate(BaseModel):
     duration: int
     total_questions: int
 
-    parts: List
+    parts: List[ListeningPartCreate]  # ✅ MUHIM
 
     class Config:
         populate_by_name = True
+
 
 class ListeningExamUpdate(BaseModel):
     title: Optional[str] = None

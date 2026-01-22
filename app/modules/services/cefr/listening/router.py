@@ -9,7 +9,7 @@ from .schemas import (
     ListeningExamResponse, 
     ListeningExamCreate, 
     ListeningExamUpdate,
-    ListeningResultCreate,
+    ListeningResultResponse,
     ListeningResultResponse,
     ListeningSubmission
 )

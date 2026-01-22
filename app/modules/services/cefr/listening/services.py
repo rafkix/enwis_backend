@@ -33,6 +33,84 @@ def get_cefr_level(std_score: float) -> str:
 class ListeningService:
     def __init__(self, db):
         self.db = db
+        
+    async def create_exam(self, data: ListeningExamCreate):
+        # 1️⃣ Exam mavjudligini tekshirish
+        stmt = select(ListeningExam).where(ListeningExam.id == data.id)
+        res = await self.db.execute(stmt)
+        if res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Listening exam already exists"
+            )
+
+        # 2️⃣ Exam yaratish
+        exam = ListeningExam(
+            id=data.id,
+            title=data.title,
+            is_demo=data.is_demo,
+            is_free=data.is_free,
+            sections=data.sections,
+            level=data.level,
+            duration=data.duration,
+            total_questions=data.total_questions
+        )
+
+        self.db.add(exam)
+        await self.db.flush()  # ID larni olish uchun
+
+        # 3️⃣ Parts, Questions, Options
+        for part_data in data.parts:
+            part = ListeningPart(
+                exam_id=exam.id,
+                part_number=part_data.part_number,
+                title=part_data.title,
+                instruction=part_data.instruction,
+                task_type=part_data.task_type,
+                audio_label=part_data.audio_label,
+                context=part_data.context,
+                passage=part_data.passage,
+                map_image=part_data.map_image
+            )
+            self.db.add(part)
+            await self.db.flush()
+
+            # Part options
+            for opt in part_data.options or []:
+                self.db.add(ListeningPartOption(
+                    part_id=part.id,
+                    value=opt.value,
+                    label=opt.label
+                ))
+
+            # Questions
+            for q_data in part_data.questions:
+                question = ListeningQuestion(
+                    part_id=part.id,
+                    question_number=q_data.question_number,
+                    type=q_data.type,
+                    question=q_data.question,
+                    correct_answer=q_data.correct_answer
+                )
+                self.db.add(question)
+                await self.db.flush()
+
+                for opt in q_data.options or []:
+                    self.db.add(ListeningQuestionOption(
+                        question_id=question.id,
+                        value=opt.value,
+                        label=opt.label
+                    ))
+
+        # 4️⃣ Commit
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            raise HTTPException(400, "Invalid exam structure")
+
+        await self.db.refresh(exam)
+        return exam
 
     async def get_all_exams(self):
         stmt = (

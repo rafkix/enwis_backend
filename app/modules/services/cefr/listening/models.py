@@ -89,7 +89,7 @@ class ListeningResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    exam_id = Column(String, nullable=False)
+    exam_id = Column(String, (ForeignKey("listening_exams.id",ondelete="CASCADE"), nullable=False)
     
     raw_score = Column(Integer)
     total_questions = Column(Integer)

@@ -1,192 +1,230 @@
-import logging
-import random
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Tuple, Dict, Any
+from typing import Optional
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import select, update, or_
 
-from app.modules.auth.schemas import BotStartRequest, UserTelegramRegister
+from app.core.security import hash_password, verify_password
 from app.modules.users.models import User
-from app.core.hashing import password_hash, verify_password
-from app.modules.auth.tokens import create_user_token
+from app.modules.auth.schemas import (
+    UserRegister,
+    UserTelegramRegister,
+    BotStartRequest,
+    TelegramLoginRequest,
+)
 from .models import PhoneVerifyCode
 
-# --- YORDAMCHI FUNKSIYALAR ---
-def clean_phone_number(phone: str) -> str:
-    """Telefon raqamidan faqat raqamlarni ajratib oladi."""
-    return re.sub(r'\D', '', str(phone))
 
-def clean_tg_id(tg_id: Any) -> int:
-    """Telegram ID raqamidan bo'shliqlarni tozalab, Integerga (BigInt) o'giradi."""
-    if tg_id is None:
+# =========================
+# HELPERS
+# =========================
+def clean_phone(phone: Optional[str]) -> Optional[str]:
+    if not phone:
         return None
-    cleaned = re.sub(r'\D', '', str(tg_id))
-    return int(cleaned) if cleaned else None
+    return re.sub(r"\D", "", phone)
 
+
+def generate_code() -> str:
+    return str(secrets.randbelow(900000) + 100000)
+
+
+# =========================
+# AUTH SERVICE
+# =========================
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    # 1. STANDART RO'YXATDAN O'TISH (SAYT ORQALI)
-    async def register(self, data) -> Tuple[User, str]:
-        cleaned_phone = clean_phone_number(data.phone)
-        
-        query = select(User).where(
-            (User.username == data.username) | 
-            (User.email == data.email) | 
-            (User.phone == cleaned_phone)
-        )
-        result = await self.db.execute(query)
-        existing_user = result.scalars().first()
+    # -------------------------------------------------
+    # REGISTER (EMAIL / PASSWORD)
+    # -------------------------------------------------
+    async def register(self, data: UserRegister) -> User:
+        phone = clean_phone(data.phone)
 
-        if existing_user:
-            if existing_user.username == data.username:
-                raise HTTPException(status_code=400, detail="Bu username band.")
-            if existing_user.email == data.email:
-                raise HTTPException(status_code=400, detail="Bu email band.")
-            if existing_user.phone == cleaned_phone:
-                raise HTTPException(status_code=400, detail="Bu telefon band.")
+        conditions = [
+            User.username == data.username,
+            User.email == data.email,
+        ]
+        if phone:
+            conditions.append(User.phone == phone)
+
+        res = await self.db.execute(select(User).where(or_(*conditions)))
+        if res.scalar_one_or_none():
+            raise HTTPException(400, "Username, email yoki telefon band")
 
         user = User(
             full_name=data.full_name,
             username=data.username,
             email=data.email,
-            phone=cleaned_phone,
-            age=data.age,
-            level=data.level,
-            role=data.role,
-            password=password_hash(data.password),
+            phone=phone,
+            password=hash_password(data.password),
+            role="student",
+            level="beginner",
+            is_active=True,
         )
 
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
+        return user
 
-        token = create_user_token(user)
-        return user, token
+    # -------------------------------------------------
+    # LOGIN (USERNAME / EMAIL / PHONE)
+    # -------------------------------------------------
+    async def login(self, login: str, password: str) -> User:
+        phone = clean_phone(login)
 
-    # 2. TELEGRAM ORQALI RO'YXATDAN O'TISH (BOTDAN KELADIGAN SO'ROV)
-    async def register_with_telegram_verify(self, data: UserTelegramRegister) -> Tuple[User, str]:
-        # Sxemadagi ma'lumotlarni User modeliga o'tkazish
-        user = User(
-            full_name=data.full_name,
-            username=data.username,
-            email=data.email,
-            phone=re.sub(r'\D', '', data.phone),
-            password=password_hash(data.password),
-            telegram_id=data.telegram_id,
-            age=data.age,
-            level=data.level,
-            role="student"
+        stmt = select(User).where(
+            or_(
+                User.username == login,
+                User.email == login,
+                User.phone == phone,
+            )
         )
-        self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
-        return user, create_user_token(user)
+        res = await self.db.execute(stmt)
+        user = res.scalar_one_or_none()
 
-    # 3. BOT START (KOD GENERATSIYASI VA SAQLASH)
+        if not user or not verify_password(password, user.password):
+            raise HTTPException(400, "Login yoki parol noto‘g‘ri")
+
+        if not user.is_active:
+            raise HTTPException(403, "User bloklangan")
+
+        return user
+
+    # -------------------------------------------------
+    # TELEGRAM BOT /start
+    # -------------------------------------------------
     async def handle_bot_start(self, data: BotStartRequest):
-        clean_phone = re.sub(r'\D', '', data.phone)
-        new_code = str(random.randint(100000, 999999))
-        
+        phone = clean_phone(data.phone)
+        if not phone:
+            raise HTTPException(status_code=400, detail="Telefon raqam majburiy")
+
+        telegram_id = int(data.telegram_id)
+        code = generate_code()
+
+        # 1️⃣ Eski kodlarni yopish
         await self.db.execute(
             update(PhoneVerifyCode)
-            .where(PhoneVerifyCode.phone == clean_phone)
+            .where(PhoneVerifyCode.phone == phone, PhoneVerifyCode.is_used == False)
             .values(is_used=True)
         )
-        
-        # 2. Foydalanuvchini bazadan qidirish
-        user_res = await self.db.execute(select(User).where(User.phone == clean_phone))
-        user = user_res.scalars().first()
 
-        # 3. Yangi kodni saqlash
-        verify_record = PhoneVerifyCode(
-            phone=clean_phone,
-            code=new_code,
-            telegram_id=data.telegram_id,
+        # 2️⃣ Userni topish
+        res = await self.db.execute(select(User).where(User.phone == phone))
+        user = res.scalar_one_or_none()
+
+        # 3️⃣ Yangi verify code (Timezone tuzatildi)
+        verify = PhoneVerifyCode(
+            phone=phone,
+            code=code,
+            telegram_id=telegram_id,
             full_name=data.full_name,
             user_id=user.id if user else None,
-            is_used=False, # Yangi kod ishlatilmagan bo'lishi kerak
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)
+            is_used=False,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
-        self.db.add(verify_record)
-        
-        # 4. Agar foydalanuvchi mavjud bo'lsa, uning telegram_id sini yangilab qo'yamiz (ixtiyoriy)
-        if user:
-            user.telegram_id = data.telegram_id
-            # is_new_user = False bo'ladi
-        
+        self.db.add(verify)
+
+        # 4️⃣ User bo'lsa bog'lash
+        if user and user.telegram_id != telegram_id:
+            user.telegram_id = telegram_id
+
         await self.db.commit()
+        return {"status": "ok", "is_new_user": user is None, "code": code}
 
-        # 5. BOTGA TO'G'RI JAVOB QAYTARISH
-        return {
-            "status": "success",
-            "code": new_code,
-            "is_new_user": user is None  # Agar user topilmasa, True qaytaradi
-        }
-    
+    async def verify_phone_code(self, data: TelegramLoginRequest):
+        phone = clean_phone(data.phone)
+        code = data.code
 
-    # 4. KODNI TASDIQLASH (SAYTDA KIRISH UCHUN)
-    async def verify_phone_code(self, phone: str, code: str) -> Dict[str, Any]:
-        clean_phone = clean_phone_number(phone)
-        
-        stmt = select(PhoneVerifyCode).where(
-            PhoneVerifyCode.phone == clean_phone,
-            PhoneVerifyCode.code == str(code), 
-            PhoneVerifyCode.is_used == False
-        ).order_by(PhoneVerifyCode.created_at.desc())
-        
-        result = await self.db.execute(stmt)
+        result = await self.db.execute(
+            select(PhoneVerifyCode)
+            .where(
+                PhoneVerifyCode.phone == phone,
+                PhoneVerifyCode.code == code,
+                PhoneVerifyCode.is_used == False
+            )
+            .order_by(PhoneVerifyCode.id.desc())
+        )
         verify = result.scalar_one_or_none()
 
         if not verify:
-            raise HTTPException(status_code=400, detail="Kod noto‘g‘ri yoki allaqachon ishlatilgan")
+            raise HTTPException(400, detail="Kod noto‘g‘ri yoki ishlatilgan")
 
-        # Vaqtni tekshirish
+        # ✅ TIME CHECK tuzatildi (Timezone-aware comparison)
         current_time = datetime.now(timezone.utc)
-        expires_at = verify.expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if verify.expires_at.replace(tzinfo=timezone.utc) < current_time:
+            raise HTTPException(400, detail="Tasdiqlash kodi muddati tugagan")
 
-        if expires_at < current_time:
-            raise HTTPException(status_code=400, detail="Kodning muddati tugagan")
+        # Userni tekshirish (Yangi user bo'lsa bu yerda to'xtaydi)
+        if not verify.user_id:
+            # Bu joyda registratsiya sahifasiga yuborish kerak bo'ladi
+            raise HTTPException(status_code=404, detail="Foydalanuvchi ro'yxatdan o'tmagan")
 
-        # Userni qidirish
-        user_stmt = select(User).where(User.phone == clean_phone)
-        user_result = await self.db.execute(user_stmt)
-        user = user_result.scalar_one_or_none()
-
+        user = await self.db.get(User, verify.user_id)
         if not user:
-            raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi. Avval botda ro'yxatdan o'ting.")
+            raise HTTPException(404, detail="Foydalanuvchi topilmadi")
 
-        # Ma'lumotlarni yangilash
-        user.telegram_id = verify.telegram_id
-        if verify.full_name:
-            user.full_name = verify.full_name
-            
+        # Hammasi yaxshi bo'lsa, keyin kodni ishlatildi deb belgilaymiz
         verify.is_used = True
-        
+        await self.db.commit()
+        return user
+
+
+    # -------------------------------------------------
+    # TELEGRAM REGISTER
+    # -------------------------------------------------
+    async def telegram_register(self, data: UserTelegramRegister) -> User:
+        phone = clean_phone(data.phone)
+
+        res = await self.db.execute(
+            select(User).where(
+                or_(
+                    User.phone == phone,
+                    User.telegram_id == data.telegram_id,
+                )
+            )
+        )
+        user = res.scalar_one_or_none()
+
+        if user:
+            if user.telegram_id:
+                raise HTTPException(400, "Telegram allaqachon bog‘langan")
+            user.telegram_id = data.telegram_id
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+
+        if not data.password:
+            raise HTTPException(400, "Parol majburiy")
+
+        res = await self.db.execute(
+            select(User).where(
+                or_(
+                    User.username == data.username,
+                    User.email == data.email,
+                )
+            )
+        )
+        if res.scalar_one_or_none():
+            raise HTTPException(400, "Username yoki email band")
+
+        user = User(
+            full_name=data.full_name,
+            username=data.username,
+            email=data.email,
+            phone=phone,
+            telegram_id=data.telegram_id,
+            password=hash_password(data.password),
+            role="student",
+            level="beginner",
+            is_active=True,
+        )
+
+        self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
-
-        token = create_user_token(user)
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "user": user
-        }
-
-    # 5. STANDART LOGIN
-    async def login(self, username: str, password: str) -> Tuple[User, str]:
-        result = await self.db.execute(select(User).where(User.username == username))
-        user = result.scalars().first()
-
-        if not user or not verify_password(password, user.password):
-            raise HTTPException(status_code=400, detail="Username yoki parol noto'g'ri")
-
-        token = create_user_token(user)
-        return user, token
+        return user

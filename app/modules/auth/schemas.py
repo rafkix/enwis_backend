@@ -1,16 +1,16 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
+from app.modules.users.schemas import UserResponse
+
 # --- REGISTRATION ---
 class UserRegister(BaseModel):
     full_name: str = Field(..., min_length=3, max_length=100)
     username: str = Field(..., min_length=3, max_length=30)
     email: EmailStr
-    password: str = Field(..., min_length=6)
-    phone: Optional[str] = None
+    password: str = Field(..., min_length=8)
+    phone: Optional[str] = Field(None, min_length=9, max_length=15)
     age: Optional[int] = Field(None, ge=10, le=100)
-    level: Optional[str] = "beginner"
-    role: Optional[str] = "student"
 
 class UserTelegramRegister(BaseModel):
     phone: str
@@ -53,3 +53,8 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: Optional[UserProfileResponse] = None
+    
+class AuthResponse(BaseModel):
+    user: UserResponse
+    access_token: str
+    token_type: str = "bearer"

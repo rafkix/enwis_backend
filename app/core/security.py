@@ -1,45 +1,69 @@
-# app/core/security.py
-from datetime import datetime, timedelta
-from typing import Optional
-from jose import JWTError
 import jwt
+from datetime import datetime, timedelta, timezone
+from fastapi import HTTPException
 from passlib.context import CryptContext
-from fastapi import HTTPException, status
+from app.core.config import (
+    SECRET_KEY, ALGORITHM, AUDIENCE,
+    ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_DAYS
+)
 
-# CONFIG - agar ilovada config fayl bo'lsa, import qiling undan
-SECRET_KEY = "change-me-to-a-secure-random-string"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 kun
-REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 kun
+pwd_context = CryptContext(
+    schemes=["argon2"],
+    deprecated="auto"
+)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password: str) -> str:
+# =====================
+# PASSWORD
+# =====================
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = {"sub": str(subject)}
-    now = datetime.utcnow()
-    if expires_delta:
-        expire = now + expires_delta
-    else:
-        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "iat": now}) # type: ignore
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def create_refresh_token():
-    return jwt.encode(
-        {"exp": datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)},
-        SECRET_KEY,
-        algorithm=ALGORITHM,
-    )
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
-def decode_access_token(token: str) -> dict:
+# =====================
+# JWT
+# =====================
+def create_access_token(user_id: int) -> str:
+    payload = {
+        "sub": str(user_id),
+        "type": "access",
+        "aud": AUDIENCE,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(minutes=ACCESS_TOKEN_MINUTES),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(user_id: int) -> str:
+    payload = {
+        "sub": str(user_id),
+        "type": "refresh",
+        "aud": AUDIENCE,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(days=REFRESH_TOKEN_DAYS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str, token_type: str) -> int:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            audience=AUDIENCE,
+        )
+
+        if payload.get("type") != token_type:
+            raise HTTPException(401, "Token turi noto‘g‘ri")
+
+        return int(payload["sub"])
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token muddati tugagan")
+    except Exception:
+        raise HTTPException(401, "Token yaroqsiz")

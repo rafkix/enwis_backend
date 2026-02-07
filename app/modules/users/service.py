@@ -2,7 +2,7 @@ import os
 import uuid
 from fastapi import UploadFile
 
-from app.core.hashing import verify_password, password_hash
+from app.core.security import verify_password, hash_password
 from app.modules.users.repository import UserRepository
 from app.modules.users.models import User
 
@@ -20,7 +20,7 @@ class UserService:
     async def change_password(self, user: User, data):
         if not verify_password(data.old_password, user.password):
             raise ValueError("Old password incorrect")
-        user.password = password_hash(data.new_password)
+        user.password = hash_password(data.new_password)
         await self.repo.save(user)
         return user
 

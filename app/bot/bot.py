@@ -16,8 +16,8 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-API_BASE_URL = "https://api.enwis.uz"
-BOT_TOKEN = "8542032478:AAHD-gX0AVdt2NPcd8NtfoBaw3hD9_J6HMY"
+API_BASE_URL = "http://127.0.0.1:8000"
+BOT_TOKEN = "8235003520:AAE7bWueai7Gx3ZzAs0H_cR-9AFQhrWwaWA"
 
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -27,71 +27,151 @@ dp = Dispatcher(storage=storage)
 router = Router()
 
 @router.message(CommandStart())
-async def start_handler(message: Message, command: CommandObject, state: FSMContext):
+async def start_handler(
+    message: Message,
+    command: CommandObject,
+    state: FSMContext
+):
     args = command.args
+
+    # =====================
+    # 1️⃣ ARGUMENT TEKSHIRISH
+    # =====================
     if not args:
-        await message.answer("❌ Iltimos, botga sayt orqali kiring (Raqamingiz tasdiqlanmagan).")
+        await message.answer(
+            "❌ <b>Xatolik</b>\n\n"
+            "Botga faqat sayt orqali kirish mumkin.\n"
+            "Raqamingiz tasdiqlanmagan.",
+            parse_mode="HTML"
+        )
         return
 
-    # 1. Saytdan kelgan raqamni tozalash
-    # %20, bo'shliq va + belgilarini olib tashlaymiz
-    raw_phone = args.replace("%20", "").replace(" ", "").replace("+", "").strip()
-    clean_phone = re.sub(r'\D', '', raw_phone)
-    
+    # =====================
+    # 2️⃣ TELEFON TOZALASH
+    # =====================
+    raw_phone = (
+        args.replace("%20", "")
+            .replace(" ", "")
+            .replace("+", "")
+            .strip()
+    )
+    clean_phone = re.sub(r"\D", "", raw_phone)
+
+    if len(clean_phone) < 9:
+        await message.answer("❌ Noto‘g‘ri telefon raqami.")
+        return
+
+    # =====================
+    # 3️⃣ BACKEND REQUEST
+    # =====================
     url = f"{API_BASE_URL}/v1/api/auth/bot/start"
     payload = {
         "phone": clean_phone,
-        "telegram_id": str(message.from_user.id),
-        "full_name": message.from_user.full_name or "Unknown"
+        "telegram_id": int(message.from_user.id),
+        "full_name": message.from_user.full_name or "Unknown",
     }
 
+    logging.info(f"BOT START PAYLOAD => {payload}")
+
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=10) as response:
-                if response.status == 200:
+        timeout = aiohttp.ClientTimeout(total=10)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as response:
+
+                # JSON xavfsiz o‘qish
+                try:
                     data = await response.json()
-                    is_new_user = data.get("is_new_user")
-                    code = data.get("code")
+                except Exception:
+                    await message.answer("❌ Backend noto‘g‘ri javob qaytardi.")
+                    return
 
-                    # --- SENARIY 1: YANGI USER (Registratsiya kerak) ---
-                    if is_new_user:
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="📝 Ro'yxatdan o'tish", callback_data="start_register_flow")]
-                        ])
-                        
-                        # FSM ga telefonni saqlaymiz, registratsiya handlerlari foydalanishi uchun
-                        await state.update_data(phone=clean_phone)
-                        
-                        await message.answer(
-                            f"👋 <b>Salom!</b>\n\n"
-                            f"Sizning raqamingiz (<code>{clean_phone}</code>) bazada topilmadi.\n"
-                            "Xizmatlardan foydalanish uchun ro'yxatdan o'ting:",
-                            reply_markup=kb
-                        )
-
-                    # --- SENARIY 2: MAVJUD USER (Login uchun kod) ---
-                    else:
-                        await message.answer(
-                            "🔐 <b>Tasdiqlash kodi</b>\n\n"
-                            f"<code>{code}</code>\n\n"
-                            "⏳ Kod 5 daqiqa amal qiladi.\n"
-                            "🌐 Uni saytga qaytib kiriting.",
-                            # Registratsiya uchun inline tugma
-                        reg_kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="📝 Ro'yxatdan o'tish", callback_data="start_register_flow")],
-                            [InlineKeyboardButton(text="🌐 Saytga qaytish", url="https://enwis.uz")]
-                        ])
-                        )
-                else:
-                    error_data = await response.json()
-                    detail = error_data.get('detail', 'Noma\'lum xatolik')
+                if response.status != 200:
+                    detail = data.get("detail", "Noma'lum xatolik")
                     await message.answer(f"❌ Xatolik: {detail}")
+                    return
 
+                logging.info(f"BOT START RESPONSE => {data}")
+
+                # =====================
+                # 4️⃣ RESPONSE ANALYZE
+                # =====================
+                is_new_user = data.get("is_new_user", False)
+
+                # -------- YANGI USER --------
+                if is_new_user is True:
+                    kb = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="📝 Ro'yxatdan o'tish",
+                                    callback_data="start_register_flow"
+                                )
+                            ]
+                        ]
+                    )
+
+                    await state.update_data(phone=clean_phone)
+
+                    await message.answer(
+                        f"👋 <b>Salom!</b>\n\n"
+                        f"Sizning raqamingiz (<code>{clean_phone}</code>) bazada topilmadi.\n"
+                        "Xizmatlardan foydalanish uchun ro'yxatdan o'ting:",
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                    return
+
+                # -------- MAVJUD USER --------
+                code = data.get("code")
+
+                if not code:
+                    logging.error(f"CODE NOT FOUND => {data}")
+                    await message.answer(
+                        "❌ Tasdiqlash kodi topilmadi.\n"
+                        "Iltimos saytga qaytib qayta urinib ko‘ring."
+                    )
+                    return
+
+                reg_kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🌐 Saytga qaytish",
+                                url="https://enwis.uz"
+                            )
+                        ]
+                    ]
+                )
+
+                await message.answer(
+                    "🔐 <b>Tasdiqlash kodi</b>\n\n"
+                    f"<code>{code}</code>\n\n"
+                    "⏳ Kod 5 daqiqa amal qiladi.\n"
+                    "🌐 Uni saytga qaytib kiriting.",
+                    reply_markup=reg_kb,
+                    parse_mode="HTML"
+                )
+
+    # =====================
+    # 5️⃣ NETWORK ERRORS
+    # =====================
     except aiohttp.ClientConnectorError:
-        await message.answer("❌ Backend serverga ulanib bo'lmadi. Server yoniqligini tekshiring.")
-    except Exception as e:
-        logging.exception("Kutilmagan xatolik:")
-        await message.answer(f"❌ Xatolik yuz berdi: {str(e)}")
+        await message.answer(
+            "❌ Backend serverga ulanib bo‘lmadi.\n"
+            "Server ishlayotganini tekshiring."
+        )
+
+    except asyncio.TimeoutError:
+        await message.answer("❌ Server javobi juda sekin.")
+
+    except Exception:
+        logging.exception("BOT START HANDLER ERROR")
+        await message.answer(
+            "❌ Kutilmagan xatolik yuz berdi.\n"
+            "Iltimos, keyinroq urinib ko‘ring."
+        )
+
 
 async def main():
     logging.basicConfig(level=logging.INFO)

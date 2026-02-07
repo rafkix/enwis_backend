@@ -1,107 +1,133 @@
+from datetime import datetime
+
 from sqlalchemy import (
-    Boolean, Column, ForeignKey, Integer, String, Text,
-    DateTime, BigInteger
+    Boolean,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    DateTime,
+    BigInteger,
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
+
 from app.core.database import Base
+
 
 class User(Base):
     __tablename__ = "users"
 
+    # --- BASIC INFO ---
     id = Column(Integer, primary_key=True, index=True)
+
     full_name = Column(String(255), nullable=False)
     username = Column(String(100), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=True)
     phone = Column(String(30), unique=True, nullable=True)
 
     password = Column(String, nullable=False)
+
     auth_provider = Column(
         String,
-        default="local"  # local | telegram | google
+        default="local",  # local | telegram | google
+        nullable=False,
     )
-    role = Column(String, default="student")
-    level = Column(String, default="beginner")
+
+    role = Column(String(50), default="student", nullable=False)
+    level = Column(String(50), default="beginner")
+
     bio = Column(Text, default="")
-    profile_image = Column(String, default="/static/avatars/default.jpg")
+    profile_image = Column(
+        String,
+        default="/static/avatars/default.jpg",
+    )
+
     age = Column(Integer, nullable=True)
-    
     is_active = Column(Boolean, default=True, nullable=False)
 
+    # --- SOCIAL AUTH ---
     google_id = Column(String, unique=True, nullable=True)
     telegram_id = Column(BigInteger, unique=True, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # =========================
+    # RELATIONSHIPS
+    # =========================
+
     settings = relationship(
         "Settings",
         back_populates="user",
         uselist=False,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     user_courses = relationship(
         "UserCourse",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
-    
-    results = relationship("ExamResult", back_populates="user", cascade="all, delete-orphan")
 
-    phone_verify_codes = relationship("PhoneVerifyCode", back_populates="user", cascade="all, delete-orphan")
 
-    
+    phone_verify_codes = relationship(
+        "PhoneVerifyCode",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
     user_tasks = relationship(
         "UserTask",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     user_words = relationship(
         "UserWord",
         back_populates="user",
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="selectin",
     )
 
     payments = relationship(
         "Payment",
         back_populates="user",
-        lazy="selectin"
+        lazy="selectin",
     )
 
     subscriptions = relationship(
         "Subscription",
         back_populates="user",
-        lazy="selectin"
+        lazy="selectin",
     )
 
     user_lessons = relationship(
         "UserLesson",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     courses_created = relationship(
         "Course",
-        back_populates="creator"
+        back_populates="creator",
     )
+
     video_shadowing_attempts = relationship(
         "VideoShadowingAttempt",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
+
     audio_writing_attempts = relationship(
         "AudioWritingAttempt",
         back_populates="user",
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="selectin",
     )
-    
-    reading_results = relationship("ExamResult", back_populates="user", cascade="all, delete-orphan")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<User id={self.id} username={self.username}>"
+
 
 
 class Settings(Base):
@@ -113,14 +139,14 @@ class Settings(Base):
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         unique=True,
-        nullable=False
+        nullable=False,
     )
 
-    language = Column(String, default="en")
+    language = Column(String(10), default="en")
     notification = Column(Boolean, default=True)
     dark_mode = Column(Boolean, default=False)
 
     user = relationship(
         "User",
-        back_populates="settings"
+        back_populates="settings",
     )

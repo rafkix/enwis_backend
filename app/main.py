@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,8 +18,9 @@ from app.modules.payment.router import router as payment_router
 from app.modules.stats.router import router as stats_router
 from app.modules.services.video_shadowing.router import router as video_router
 from app.modules.services.audio_writing.router import router as audio_router
-from app.modules.services.cefr.reading.router import router as cefr_reading_router
-from app.modules.services.cefr.listening.router import router as cefr_listening_router
+from app.modules.services.exams.mock.router import router as mock_router
+from app.modules.services.exams.reading.router import router as reading_router
+from app.modules.services.exams.listening.router import router as listening_router
 
 app = FastAPI(
     title="Enwis Backend API",
@@ -72,10 +73,9 @@ app.include_router(payment_router, prefix="/v1/api")
 app.include_router(video_router, prefix="/v1/api")
 app.include_router(audio_router, prefix="/v1/api")
 app.include_router(stats_router, prefix="/v1/api")
-app.include_router(cefr_reading_router, prefix="/v1/api")
-app.include_router(cefr_listening_router, prefix="/v1/api")
-
-# app.include_router(payments_router.router)
+app.include_router(mock_router, prefix="/v1/api")
+app.include_router(reading_router, prefix="/v1/api")
+app.include_router(listening_router, prefix="/v1/api")
 # app.include_router(ai_router.router)
 
 
